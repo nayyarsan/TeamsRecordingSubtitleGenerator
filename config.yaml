@@ -1,0 +1,142 @@
+# Webex Speaker Labeling Configuration
+
+# Audio Processing
+audio:
+  # Sample rate for audio processing
+  sample_rate: 16000
+  
+  # Audio format for extraction
+  format: "wav"
+  
+  # Diarization settings
+  diarization:
+    # Maximum number of speakers to detect
+    max_speakers: 10
+    
+    # Minimum speaker segment duration (seconds)
+    min_segment_duration: 0.5
+    
+    # Minimum duration for a speaker to be considered active
+    min_speakers_time: 1.0
+
+# Video Processing
+video:
+  # Frames per second to sample (lower = faster, higher = more accurate)
+  fps: 3
+  
+  # Face detection settings
+  face_detection:
+    # Minimum confidence threshold for face detection (0-1)
+    min_confidence: 0.5
+    
+    # Minimum face size (as fraction of frame height)
+    min_face_size: 0.05
+    
+    # Maximum number of faces to track
+    max_faces: 10
+  
+  # Lip movement detection (optional for MVP)
+  lip_detection:
+    # Enable lip movement analysis
+    enabled: true
+    
+    # Window size for movement analysis (frames)
+    window_size: 5
+    
+    # Movement threshold (normalized)
+    movement_threshold: 0.1
+
+# Audio-Visual Fusion
+fusion:
+  # Time tolerance for alignment (seconds)
+  alignment_tolerance: 0.5
+  
+  # Confidence thresholds
+  thresholds:
+    # Minimum confidence for audio diarization
+    diarization: 0.6
+    
+    # Minimum confidence for AV alignment
+    av_alignment: 0.5
+    
+    # Minimum confidence for name mapping
+    name_mapping: 0.7
+
+# Speaker Naming
+naming:
+  # Introduction detection
+  intro_detection:
+    # Maximum time from start to search for intros (seconds)
+    max_intro_time: 300  # 5 minutes
+    
+    # Minimum time for intro segment (seconds)
+    min_intro_duration: 2.0
+    
+    # Patterns to match introductions
+    intro_patterns:
+      - "I'm"
+      - "I am"
+      - "My name is"
+      - "This is"
+      - "Hi, I'm"
+      - "Hello, I'm"
+  
+  # LLM-assisted name extraction (optional)
+  llm:
+    # Enable LLM for name extraction
+    enabled: false
+    
+    # Provider: "openai", "anthropic", or "local"
+    provider: "openai"
+    
+    # Model name
+    model: "gpt-4"
+    
+    # Temperature for name extraction
+    temperature: 0.0
+
+# Output Settings
+output:
+  # SRT subtitle settings
+  srt:
+    # Maximum characters per subtitle line
+    max_line_length: 60
+    
+    # Maximum lines per subtitle
+    max_lines: 2
+    
+    # Include confidence scores in metadata
+    include_confidence: false
+  
+  # JSON output settings
+  json:
+    # Pretty print JSON
+    pretty_print: true
+    
+    # Include raw data (face coordinates, etc.)
+    include_raw_data: false
+    
+    # Include confidence scores
+    include_confidence: true
+
+# Processing
+processing:
+  # Number of worker threads (0 = auto)
+  num_workers: 0
+  
+  # Temporary directory for intermediate files
+  temp_dir: "./temp"
+  
+  # Clean up temporary files after processing
+  cleanup_temp: true
+  
+  # Verbose logging
+  verbose: true
+
+# Privacy Settings
+privacy:
+  # Allow external API calls (for optional LLM features)
+  allow_external_api: false
+  
+  # Log processing statistics (locally only)
+  log_statistics: true
