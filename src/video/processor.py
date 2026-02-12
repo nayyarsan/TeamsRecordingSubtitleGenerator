@@ -73,6 +73,12 @@ class VideoProcessor:
         self.lip_threshold = lip_config.get('movement_threshold', 0.1)
         
         # Initialize MediaPipe Face Detection
+        if not hasattr(mp, "solutions"):
+            raise ImportError(
+                "mediapipe.solutions is not available. Install a compatible "
+                "MediaPipe package (for example: pip install mediapipe==0.10.11)."
+            )
+
         self.mp_face_detection = mp.solutions.face_detection
         self.mp_face_mesh = mp.solutions.face_mesh
         

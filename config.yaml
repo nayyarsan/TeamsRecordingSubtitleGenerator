@@ -95,6 +95,14 @@ naming:
     # Temperature for name extraction
     temperature: 0.0
 
+# Transcription (when transcript file is not provided)
+transcription:
+  # Whisper model size: tiny, base, small, medium, large
+  model: "base"
+
+  # Optional language code for ASR (e.g., en, fr, es)
+  language: null
+
 # Output Settings
 output:
   # SRT subtitle settings

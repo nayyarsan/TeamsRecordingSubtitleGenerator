@@ -8,6 +8,9 @@ An offline Python tool that post-processes Webex meeting recordings to identify 
 - **Video Analysis**: Detects faces and tracks lip movements to associate speakers with visual identities
 - **Speaker Naming**: Automatically extracts participant names from meeting introductions
 - **Multi-format Output**: Generates labeled SRT subtitles and structured JSON metadata
+- **Annotated Video Generation**: Creates video with face detection boxes and speaker-labeled subtitles
+- **Web UI Viewer**: Interactive interface to view videos with synchronized transcripts
+- **Auto-Transcription**: Built-in Whisper ASR support when transcript is not available
 - **CPU-Optimized**: Runs locally without GPU requirements
 - **Privacy-First**: All processing happens on your machine
 
@@ -41,6 +44,7 @@ pip install -r requirements.txt
 
 ## Quick Start
 
+**Basic processing:**
 ```bash
 python process_meeting.py \
   --video path/to/meeting.mp4 \
@@ -48,10 +52,41 @@ python process_meeting.py \
   --output-dir ./output
 ```
 
+**Auto-transcription (no transcript file):**
+```bash
+python process_meeting.py \
+  --video path/to/meeting.mp4 \
+  --output-dir ./output \
+  --asr-model base
+```
+
+**Generate annotated video with face detection:**
+```bash
+python process_meeting.py \
+  --video path/to/meeting.mp4 \
+  --output-dir ./output \
+  --annotated-video
+```
+
+**Launch web UI viewer:**
+```bash
+python process_meeting.py \
+  --video path/to/meeting.mp4 \
+  --output-dir ./output \
+  --web-ui
+```
+
+**Or view already-processed videos:**
+```bash
+python view_videos.py --output-dir ./output --port 5000
+```
+Then open http://localhost:5000 in your browser.
+
 ## Output Files
 
 - **meeting_labeled.srt**: Subtitle file with speaker names
 - **meeting_labeled.json**: Structured metadata with speaker segments, timestamps, and confidence scores
+- **meeting_annotated.mp4**: (Optional) Video with face detection boxes and speaker-labeled subtitles
 
 ## Project Structure
 
@@ -62,8 +97,11 @@ webex-speaker-labeling/
 │   ├── video/           # Face detection and tracking
 │   ├── fusion/          # Audio-visual alignment
 │   ├── naming/          # Speaker name extraction
-│   └── output/          # Output generation
+│   ├── output/          # Output generation
+│   ├── visualizer.py    # Video annotation with face boxes
+│   └── web_ui.py        # Flask web viewer
 ├── process_meeting.py   # Main CLI entry point
+├── view_videos.py       # Standalone web UI viewer
 ├── config.yaml          # Configuration parameters
 └── requirements.txt     # Python dependencies
 ```
