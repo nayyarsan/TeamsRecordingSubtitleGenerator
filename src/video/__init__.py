@@ -3,7 +3,7 @@
 from .processor import VideoProcessor, Face, FrameData
 
 __all__ = [
-    'VideoProcessor',
-    'Face',
-    'FrameData',
+    "VideoProcessor",
+    "Face",
+    "FrameData",
 ]

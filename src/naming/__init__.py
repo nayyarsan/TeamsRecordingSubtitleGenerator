@@ -3,6 +3,6 @@
 from .extractor import SpeakerNamer, NamedSpeaker
 
 __all__ = [
-    'SpeakerNamer',
-    'NamedSpeaker',
+    "SpeakerNamer",
+    "NamedSpeaker",
 ]
