@@ -12,11 +12,14 @@ soundfile>=0.12.0
 # Video Processing
 opencv-python>=4.8.0
 opencv-contrib-python>=4.8.0
-mediapipe>=0.10.0  # For facial landmarks and lip movement detection
+mediapipe==0.10.11  # For facial landmarks and lip movement detection
 
 # Transcript Processing
 pysrt>=1.1.2
 webvtt-py>=0.4.6
+
+# Transcription (for no-transcript mode)
+openai-whisper>=20231117
 
 # ML/NLP for Name Extraction
 transformers>=4.30.0
@@ -24,6 +27,10 @@ spacy>=3.5.0
 
 # Output Generation
 jinja2>=3.1.0
+
+# Web UI (optional)
+flask>=2.3.0
+werkzeug>=2.3.0
 
 # CLI and Configuration
 click>=8.1.0

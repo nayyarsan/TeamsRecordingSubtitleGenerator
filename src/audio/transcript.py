@@ -30,6 +30,61 @@ class TranscriptSegment:
 
 class TranscriptParser:
     """Handles parsing of various transcript formats."""
+
+    @staticmethod
+    def transcribe_audio(
+        audio_path: Path,
+        model_size: str = "base",
+        language: Optional[str] = None
+    ) -> List[TranscriptSegment]:
+        """
+        Transcribe audio into transcript segments using Whisper.
+
+        Args:
+            audio_path: Path to audio file
+            model_size: Whisper model size (tiny, base, small, medium, large)
+            language: Optional language code (e.g., en, fr, es)
+
+        Returns:
+            List of transcript segments
+        """
+        logger.info(f"Transcribing audio with Whisper model '{model_size}'")
+
+        try:
+            import whisper
+            import librosa
+            import numpy as np
+        except Exception as e:
+            raise ValueError(
+                "Whisper is not installed. Install 'openai-whisper' to use auto-transcription."
+            ) from e
+
+        try:
+            # Pre-load audio with librosa to avoid ffmpeg dependency
+            logger.info("Loading audio file...")
+            audio, sr = librosa.load(str(audio_path), sr=16000, mono=True)
+            
+            model = whisper.load_model(model_size)
+            logger.info("Running speech recognition...")
+            result = model.transcribe(
+                audio,
+                language=language,
+                task="transcribe"
+            )
+        except Exception as e:
+            raise ValueError(f"Audio transcription failed: {e}") from e
+
+        segments = []
+        for seg in result.get("segments", []):
+            segments.append(TranscriptSegment(
+                start=float(seg.get("start", 0.0)),
+                end=float(seg.get("end", 0.0)),
+                text=(seg.get("text", "") or "").strip(),
+                speaker=None
+            ))
+
+        logger.info(f"Transcription complete: {len(segments)} segments")
+        return segments
     
     @staticmethod
     def parse_srt(file_path: Path) -> List[TranscriptSegment]:

@@ -11,6 +11,7 @@ from .video import VideoProcessor
 from .fusion import AudioVisualFusion
 from .naming import SpeakerNamer
 from .output import OutputGenerator
+from .visualizer import VideoVisualizer
 from .utils import get_logger, get_config, setup_logger
 
 
@@ -38,12 +39,13 @@ class MeetingProcessor:
         
         self.config = get_config()
         
-        # Initialize components
-        self.audio_processor = AudioProcessor()
+        # Initialize components (audio_processor will be set per-process)
+        self.audio_processor = None
         self.video_processor = VideoProcessor()
         self.fusion_processor = AudioVisualFusion()
         self.speaker_namer = SpeakerNamer()
         self.output_generator = OutputGenerator()
+        self.video_visualizer = VideoVisualizer()
         
         # Processing config
         processing_config = self.config.get_processing_config()
@@ -55,8 +57,12 @@ class MeetingProcessor:
     def process(
         self,
         video_path: Path,
-        transcript_path: Path,
-        output_dir: Path
+        transcript_path: Optional[Path],
+        output_dir: Path,
+        asr_model: Optional[str] = None,
+        asr_language: Optional[str] = None,
+        ffmpeg_path: Optional[str] = None,
+        generate_annotated_video: bool = False
     ) -> Dict[str, Path]:
         """
         Process a meeting recording end-to-end.
@@ -72,7 +78,10 @@ class MeetingProcessor:
         logger.info("=" * 80)
         logger.info("Starting meeting processing pipeline")
         logger.info(f"Video: {video_path}")
-        logger.info(f"Transcript: {transcript_path}")
+        if transcript_path:
+            logger.info(f"Transcript: {transcript_path}")
+        else:
+            logger.info("Transcript: <auto-transcribe>")
         logger.info(f"Output: {output_dir}")
         logger.info("=" * 80)
         
@@ -84,6 +93,9 @@ class MeetingProcessor:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize AudioProcessor with ffmpeg_path (each process call may have different path)
+        self.audio_processor = AudioProcessor(ffmpeg_path=ffmpeg_path)
         
         try:
             # Step 1: Extract audio and perform diarization
@@ -103,7 +115,18 @@ class MeetingProcessor:
             
             # Step 2: Parse transcript
             logger.info("\n[2/5] Parsing transcript...")
-            transcript_segments = TranscriptParser.parse(transcript_path)
+            if transcript_path:
+                transcript_segments = TranscriptParser.parse(transcript_path)
+            else:
+                transcription_config = self.config.get('transcription', default={})
+                model_size = asr_model or transcription_config.get('model', 'base')
+                language = asr_language or transcription_config.get('language')
+                logger.info(f"Auto-transcribing audio using Whisper model: {model_size}")
+                transcript_segments = TranscriptParser.transcribe_audio(
+                    audio_path,
+                    model_size=model_size,
+                    language=language
+                )
             logger.info(f"Transcript parsed: {len(transcript_segments)} segments")
             
             # Step 3: Process video and detect faces
@@ -170,10 +193,30 @@ class MeetingProcessor:
             )
             output_files['json'] = json_path
             
+            # Generate annotated video (optional)
+            if generate_annotated_video:
+                logger.info("\nGenerating annotated video with face detection...")
+                annotated_video_path = output_dir / f"{video_path.stem}_annotated.mp4"
+                try:
+                    self.video_visualizer.create_annotated_video(
+                        video_path,
+                        frame_data_list,
+                        fused_segments,
+                        speaker_mapping,
+                        transcript_segments,
+                        annotated_video_path,
+                        ffmpeg_path
+                    )
+                    output_files['annotated_video'] = annotated_video_path
+                except Exception as e:
+                    logger.warning(f"Could not generate annotated video: {e}")
+            
             logger.info("\n" + "=" * 80)
             logger.info("Processing complete!")
             logger.info(f"SRT output: {srt_path}")
             logger.info(f"JSON output: {json_path}")
+            if 'annotated_video' in output_files:
+                logger.info(f"Annotated video: {annotated_video_path}")
             logger.info("=" * 80)
             
             return output_files
@@ -188,7 +231,7 @@ class MeetingProcessor:
                 logger.info("Cleaning up temporary files...")
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
     
-    def _validate_inputs(self, video_path: Path, transcript_path: Path):
+    def _validate_inputs(self, video_path: Path, transcript_path: Optional[Path]):
         """
         Validate input files.
         
@@ -208,13 +251,14 @@ class MeetingProcessor:
             logger.warning(f"Unsupported video format: {video_path.suffix}. "
                           f"Attempting to process anyway...")
         
-        # Check transcript file
-        if not transcript_path.exists():
-            raise FileNotFoundError(f"Transcript file not found: {transcript_path}")
-        
-        if transcript_path.suffix.lower() not in ['.srt', '.vtt', '.json']:
-            raise ValueError(f"Unsupported transcript format: {transcript_path.suffix}. "
-                           f"Supported formats: .srt, .vtt, .json")
+        # Check transcript file (optional)
+        if transcript_path:
+            if not transcript_path.exists():
+                raise FileNotFoundError(f"Transcript file not found: {transcript_path}")
+
+            if transcript_path.suffix.lower() not in ['.srt', '.vtt', '.json']:
+                raise ValueError(f"Unsupported transcript format: {transcript_path.suffix}. "
+                               f"Supported formats: .srt, .vtt, .json")
         
         logger.info("Input validation passed")
 
@@ -224,7 +268,11 @@ def process_meeting(
     transcript_path: str,
     output_dir: str,
     config_path: Optional[str] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    ffmpeg_path: Optional[str] = None,
+    asr_model: Optional[str] = None,
+    asr_language: Optional[str] = None,
+    generate_annotated_video: bool = False
 ) -> Dict[str, Path]:
     """
     Convenience function to process a meeting.
@@ -235,6 +283,10 @@ def process_meeting(
         output_dir: Output directory
         config_path: Optional config file path
         verbose: Enable verbose logging
+        ffmpeg_path: Optional ffmpeg executable path
+        asr_model: Optional Whisper ASR model
+        asr_language: Optional language for ASR
+        generate_annotated_video: Generate annotated video with face detection
     
     Returns:
         Dictionary of output file paths
@@ -246,6 +298,10 @@ def process_meeting(
     
     return processor.process(
         Path(video_path),
-        Path(transcript_path),
-        Path(output_dir)
+        Path(transcript_path) if transcript_path else None,
+        Path(output_dir),
+        asr_model=asr_model,
+        asr_language=asr_language,
+        ffmpeg_path=ffmpeg_path,
+        generate_annotated_video=generate_annotated_video
     )

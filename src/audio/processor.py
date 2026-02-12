@@ -8,6 +8,7 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import subprocess
 import tempfile
+import shutil
 
 from pyannote.audio import Pipeline
 from pyannote.core import Segment, Annotation
@@ -35,12 +36,13 @@ class DiarizationSegment:
 class AudioProcessor:
     """Handles audio extraction and diarization."""
     
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, ffmpeg_path: Optional[str] = None):
         """
         Initialize audio processor.
         
         Args:
             config: Audio configuration dictionary
+            ffmpeg_path: Optional path to ffmpeg executable
         """
         if config is None:
             config = get_config().get_audio_config()
@@ -48,6 +50,7 @@ class AudioProcessor:
         self.config = config
         self.sample_rate = config.get('sample_rate', 16000)
         self.audio_format = config.get('format', 'wav')
+        self.ffmpeg_path = ffmpeg_path
         
         # Diarization settings
         diar_config = config.get('diarization', {})
@@ -80,8 +83,15 @@ class AudioProcessor:
             output_path = video_path.parent / f"{video_path.stem}_audio.{self.audio_format}"
         
         # Use ffmpeg for audio extraction
+        ffmpeg_bin = self.ffmpeg_path or shutil.which('ffmpeg')
+        if not ffmpeg_bin:
+            raise FileNotFoundError(
+                "ffmpeg not found on PATH. Install ffmpeg (full-shared build on Windows) "
+                "and ensure it is available in your PATH, or use --ffmpeg-path to specify the path."
+            )
+
         cmd = [
-            'ffmpeg',
+            ffmpeg_bin,
             '-i', str(video_path),
             '-vn',  # No video
             '-acodec', 'pcm_s16le',  # PCM audio codec
@@ -109,23 +119,39 @@ class AudioProcessor:
         if self._diarization_pipeline is None:
             logger.info("Loading diarization pipeline...")
             try:
-                # Use CPU-friendly pipeline
-                # Note: This requires a HuggingFace token for pyannote models
-                # Users should set HF_TOKEN environment variable
+                import os
+                # Get token from environment
+                token = os.environ.get('HF_TOKEN')
+                
+                if not token:
+                    logger.warning("HF_TOKEN not set. Attempting to load without token (may fail for gated models).")
+                
+                # Use CPU-friendly pipeline for Pyannote 3.1+
+                # Build kwargs with only valid parameters
+                kwargs = {}
+                if token:
+                    kwargs["token"] = token
+                
+                logger.info("Loading speaker-diarization-3.1 model...")
                 self._diarization_pipeline = Pipeline.from_pretrained(
                     "pyannote/speaker-diarization-3.1",
-                    use_auth_token=True
+                    **kwargs
                 )
                 
-                # Force CPU usage
+                # Force CPU usage (move pipeline to CPU after loading)
                 if torch.cuda.is_available():
                     logger.warning("GPU detected but using CPU for MVP")
+                    self._diarization_pipeline.to(torch.device("cpu"))
                 
-                self._diarization_pipeline.to(torch.device("cpu"))
-                logger.info("Diarization pipeline loaded")
+                logger.info("Diarization pipeline loaded successfully")
             except Exception as e:
                 logger.error(f"Failed to load diarization pipeline: {e}")
-                logger.info("Please set HF_TOKEN environment variable with your HuggingFace token")
+                logger.info("\nTo use the speaker diarization feature:")
+                logger.info("1. Visit and accept: https://huggingface.co/pyannote/speaker-diarization-3.1")
+                logger.info("2. Visit and accept: https://huggingface.co/pyannote/segmentation-3.0")
+                logger.info("3. Create token: https://huggingface.co/settings/tokens")
+                logger.info("4. Set token: $env:HF_TOKEN = 'hf_your_token_here'")
+                logger.info("5. Run pipeline again")
                 raise
     
     def perform_diarization(
@@ -148,34 +174,87 @@ class AudioProcessor:
         
         # Run diarization
         try:
-            diarization = self._diarization_pipeline(
-                str(audio_path),
-                num_speakers=None,  # Auto-detect
-                min_speakers=1,
-                max_speakers=self.max_speakers
-            )
+            # Pre-load audio using librosa to avoid torchcodec issues
+            logger.info("Loading audio file with librosa...")
+            import librosa
             
-            # Convert to our segment format
+            # Load audio with librosa (no torchcodec dependency)
+            waveform_np, sr = librosa.load(str(audio_path), sr=None, mono=True)
+            
+            # Resample to 16kHz if needed
+            if sr != 16000:
+                logger.info(f"Resampling from {sr}Hz to 16kHz")
+                waveform_np = librosa.resample(waveform_np, orig_sr=sr, target_sr=16000)
+                sr = 16000
+            
+            # Convert to torch tensor (N, T) format
+            waveform = torch.from_numpy(waveform_np).float().unsqueeze(0)
+            
+            # Create file dict in format Pyannote expects
+            file = {
+                "waveform": waveform,
+                "sample_rate": 16000
+            }
+            
+            logger.info(f"Running diarization (audio duration: {waveform.shape[1] / 16000:.1f}s)")
+            output = self._diarization_pipeline(file)
+            
+            # Handle different output formats from Pyannote 3.1+
+            # DiarizeOutput has different structure than Annotation
+            logger.info(f"Diarization output type: {type(output)}")
+            
+            # Convert diarization output to our segment format
             segments = []
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                # Filter out very short segments
-                if turn.duration >= self.min_segment_duration:
+            
+            # Try different methods to access the diarization data
+            if hasattr(output, '__iter__'):
+                # If it's iterable, iterate directly
+                for turn, _, speaker in output:
                     segment = DiarizationSegment(
                         speaker_id=speaker,
                         start=turn.start,
                         end=turn.end,
-                        confidence=1.0  # pyannote doesn't provide confidence
+                        confidence=1.0
                     )
                     segments.append(segment)
+            elif hasattr(output, 'itertracks'):
+                # If it has itertracks method (Annotation)
+                for turn, _, speaker in output.itertracks(yield_label=True):
+                    segment = DiarizationSegment(
+                        speaker_id=speaker,
+                        start=turn.start,
+                        end=turn.end,
+                        confidence=1.0
+                    )
+                    segments.append(segment)
+            elif hasattr(output, 'segments'):
+                # If it has segments attribute
+                for seg in output.segments:
+                    segment = DiarizationSegment(
+                        speaker_id=seg.label,
+                        start=seg.start,
+                        end=seg.end,
+                        confidence=1.0
+                    )
+                    segments.append(segment)
+            else:
+                # Try to get the annotation directly
+                diarization = output
+                if hasattr(diarization, 'itertracks'):
+                    for turn, _, speaker in diarization.itertracks(yield_label=True):
+                        segment = DiarizationSegment(
+                            speaker_id=speaker,
+                            start=turn.start,
+                            end=turn.end,
+                            confidence=1.0
+                        )
+                        segments.append(segment)
             
-            logger.info(f"Diarization complete: {len(segments)} segments, "
-                       f"{len(set(s.speaker_id for s in segments))} speakers detected")
-            
+            logger.info(f"Diarization complete: {len(segments)} segments from {len(set([s.speaker_id for s in segments]))} speakers")
             return segments
-            
         except Exception as e:
             logger.error(f"Diarization failed: {e}")
-            raise
+            raise RuntimeError(f"Diarization failed: {e}")
     
     def get_speaker_statistics(
         self, 
