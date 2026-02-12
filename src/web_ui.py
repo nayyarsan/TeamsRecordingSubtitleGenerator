@@ -1,62 +1,58 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, jsonify, send_file
 from pathlib import Path
-from typing import Optional, Dict, List
 import json
-from datetime import timedelta
-import mimetypes
 
-from .utils import get_logger, get_config
-
+from .utils import get_logger
 
 logger = get_logger(__name__)
 
 
 class WebUI:
     """Flask web application for video viewer."""
-    
+
     def __init__(self, output_dir: Path):
         """
         Initialize web UI.
-        
+
         Args:
             output_dir: Directory containing processed videos and metadata
         """
         self.output_dir = Path(output_dir)
         self.app = Flask(__name__, template_folder=None)
-        self.app.config['JSON_SORT_KEYS'] = False
-        
+        self.app.config["JSON_SORT_KEYS"] = False
+
         # Register routes
         self._register_routes()
-        
+
         logger.info(f"WebUI initialized with output dir: {output_dir}")
-    
+
     def _register_routes(self):
         """Register Flask routes."""
-        
-        @self.app.route('/')
+
+        @self.app.route("/")
         def index():
             return self._render_index()
-        
-        @self.app.route('/api/videos')
+
+        @self.app.route("/api/videos")
         def list_videos():
             return self._list_videos()
-        
-        @self.app.route('/api/video/<video_id>/metadata')
+
+        @self.app.route("/api/video/<video_id>/metadata")
         def get_metadata(video_id):
             return self._get_metadata(video_id)
-        
-        @self.app.route('/api/video/<video_id>/subtitles')
+
+        @self.app.route("/api/video/<video_id>/subtitles")
         def get_subtitles(video_id):
             return self._get_subtitles(video_id)
-        
-        @self.app.route('/video/<video_id>/annotated')
+
+        @self.app.route("/video/<video_id>/annotated")
         def get_annotated_video(video_id):
             return self._get_annotated_video(video_id)
-        
-        @self.app.route('/api/video/<video_id>/original')
+
+        @self.app.route("/api/video/<video_id>/original")
         def get_original_video(video_id):
             return self._get_original_video(video_id)
-    
+
     def _render_index(self):
         """Render main HTML page."""
         html = """
@@ -519,7 +515,7 @@ class WebUI:
             }
             
             listDiv.innerHTML = allSubtitles.map((subtitle, idx) => {
-                const speakerMatch = subtitle.text.match(/^([^:]+):\s*(.*)/);
+                const speakerMatch = subtitle.text.match(/^([^:]+):\\s*(.*)/);
                 const speaker = speakerMatch ? speakerMatch[1] : '';
                 const text = speakerMatch ? speakerMatch[2] : subtitle.text;
                 
@@ -637,140 +633,136 @@ class WebUI:
 </html>
         """
         return html
-    
+
     def _list_videos(self):
         """List all processed videos."""
         videos = []
-        
+
         if self.output_dir.exists():
-            for json_file in self.output_dir.glob('*_labeled.json'):
-                base_name = json_file.stem.replace('_labeled', '')
+            for json_file in self.output_dir.glob("*_labeled.json"):
+                base_name = json_file.stem.replace("_labeled", "")
                 stat = json_file.stat()
-                
-                videos.append({
-                    'id': base_name,
-                    'name': base_name,
-                    'timestamp': stat.st_mtime
-                })
-        
-        return jsonify({
-            'videos': sorted(videos, key=lambda x: x['timestamp'], reverse=True)
-        })
-    
+
+                videos.append(
+                    {"id": base_name, "name": base_name, "timestamp": stat.st_mtime}
+                )
+
+        return jsonify(
+            {"videos": sorted(videos, key=lambda x: x["timestamp"], reverse=True)}
+        )
+
     def _get_metadata(self, video_id):
         """Get metadata for a video."""
         json_file = self.output_dir / f"{video_id}_labeled.json"
-        
+
         if not json_file.exists():
-            return jsonify({'error': 'Video not found'}), 404
-        
+            return jsonify({"error": "Video not found"}), 404
+
         try:
             with open(json_file) as f:
                 data = json.load(f)
-            
-            speakers = list(set(seg.get('speaker', 'Unknown') for seg in data.get('segments', [])))
-            
-            return jsonify({
-                'duration': data.get('duration', 'Unknown'),
-                'speaker_count': len(speakers),
-                'speakers': speakers,
-                'segment_count': len(data.get('segments', [])),
-                'resolution': data.get('video_resolution', 'Unknown'),
-                'fps': data.get('fps', 'Unknown')
-            })
+
+            speakers = list(
+                set(seg.get("speaker", "Unknown") for seg in data.get("segments", []))
+            )
+
+            return jsonify(
+                {
+                    "duration": data.get("duration", "Unknown"),
+                    "speaker_count": len(speakers),
+                    "speakers": speakers,
+                    "segment_count": len(data.get("segments", [])),
+                    "resolution": data.get("video_resolution", "Unknown"),
+                    "fps": data.get("fps", "Unknown"),
+                }
+            )
         except Exception as e:
             logger.error(f"Error reading metadata: {e}")
-            return jsonify({'error': str(e)}), 500
-    
+            return jsonify({"error": str(e)}), 500
+
     def _get_subtitles(self, video_id):
         """Get subtitles for a video in JSON format."""
         srt_file = self.output_dir / f"{video_id}_labeled.srt"
-        
+
         if not srt_file.exists():
-            return jsonify({'subtitles': []})
-        
+            return jsonify({"subtitles": []})
+
         try:
             subtitles = []
             with open(srt_file) as f:
                 lines = f.readlines()
-            
+
             i = 0
             while i < len(lines):
                 line = lines[i].strip()
-                
+
                 if line and line[0].isdigit():
                     # Found subtitle number, next line should be timing
                     if i + 1 < len(lines):
                         timing = lines[i + 1].strip()
-                        if '-->' in timing:
-                            parts = timing.split(' --> ')
+                        if "-->" in timing:
+                            parts = timing.split(" --> ")
                             if len(parts) == 2:
                                 start = self._srt_time_to_seconds(parts[0])
                                 end = self._srt_time_to_seconds(parts[1])
-                                
+
                                 # Get text
                                 text_lines = []
                                 j = i + 2
                                 while j < len(lines) and lines[j].strip():
                                     text_lines.append(lines[j].strip())
                                     j += 1
-                                
+
                                 if text_lines:
-                                    subtitles.append({
-                                        'start': start,
-                                        'end': end,
-                                        'text': ' '.join(text_lines)
-                                    })
-                                
+                                    subtitles.append(
+                                        {
+                                            "start": start,
+                                            "end": end,
+                                            "text": " ".join(text_lines),
+                                        }
+                                    )
+
                                 i = j
                                 continue
-                
+
                 i += 1
-            
-            return jsonify({'subtitles': subtitles})
-        
+
+            return jsonify({"subtitles": subtitles})
+
         except Exception as e:
             logger.error(f"Error reading subtitles: {e}")
-            return jsonify({'subtitles': []})
-    
+            return jsonify({"subtitles": []})
+
     def _srt_time_to_seconds(self, time_str: str) -> float:
         """Convert SRT time format to seconds."""
         try:
-            parts = time_str.replace(',', '.').split(':')
+            parts = time_str.replace(",", ".").split(":")
             hours = int(parts[0])
             minutes = int(parts[1])
             seconds = float(parts[2])
             return hours * 3600 + minutes * 60 + seconds
-        except:
+        except (ValueError, IndexError):
             return 0.0
-    
+
     def _get_annotated_video(self, video_id):
         """Serve annotated video."""
         video_file = self.output_dir / f"{video_id}_annotated.mp4"
-        
+
         if not video_file.exists():
             return "Video not found", 404
-        
-        return send_file(
-            str(video_file),
-            mimetype='video/mp4',
-            as_attachment=False
-        )
-    
+
+        return send_file(str(video_file), mimetype="video/mp4", as_attachment=False)
+
     def _get_original_video(self, video_id):
         """Serve original video."""
         video_file = self.output_dir / f"{video_id}.mp4"
-        
+
         if not video_file.exists():
             return "Video not found", 404
-        
-        return send_file(
-            str(video_file),
-            mimetype='video/mp4',
-            as_attachment=False
-        )
-    
-    def run(self, host: str = '0.0.0.0', port: int = 5000, debug: bool = False):
+
+        return send_file(str(video_file), mimetype="video/mp4", as_attachment=False)
+
+    def run(self, host: str = "0.0.0.0", port: int = 5000, debug: bool = False):
         """Run the Flask app."""
         logger.info(f"Starting web UI on {host}:{port}")
         self.app.run(host=host, port=port, debug=debug, use_reloader=False)

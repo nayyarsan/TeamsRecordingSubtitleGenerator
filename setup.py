@@ -51,6 +51,9 @@ setup(
         "tqdm>=4.65.0",
         "python-dateutil>=2.8.0",
         "pillow>=10.0.0",
+        "openai-whisper>=20231117",
+        "flask>=2.3.0",
+        "werkzeug>=2.3.0",
     ],
     extras_require={
         "dev": [
