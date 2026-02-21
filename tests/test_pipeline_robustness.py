@@ -52,3 +52,11 @@ def test_count_total_faces_sums_across_frames():
     # frame_data_list: list of frames, each frame is a list of face detections
     frame_data = [["face1", "face2"], [], ["face3"]]
     assert proc._count_total_faces(frame_data) == 3
+
+
+def test_warn_is_called_when_no_faces_detected():
+    """_count_total_faces with all-empty frame lists returns 0."""
+    proc = _make_processor()
+    # Simulate frame data where MediaPipe found nothing in any frame
+    frame_data_all_empty = [[], [], [], []]
+    assert proc._count_total_faces(frame_data_all_empty) == 0

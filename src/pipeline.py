@@ -168,52 +168,84 @@ class MeetingProcessor:
             # Step 2: Parse transcript
             self._update_progress("transcription", 20, "Parsing transcript...")
             logger.info("\n[2/6] Parsing transcript...")
-            if transcript_path:
-                transcript_segments = TranscriptParser.parse(transcript_path)
-            else:
-                transcription_config = self.config.get("transcription", default={})
-                model_size = asr_model or transcription_config.get("model", "base")
-                language = asr_language or transcription_config.get("language")
-                logger.info(
-                    f"Auto-transcribing audio using Whisper model: {model_size}"
+            try:
+                if transcript_path:
+                    transcript_segments = TranscriptParser.parse(transcript_path)
+                else:
+                    transcription_config = self.config.get("transcription", default={})
+                    model_size = asr_model or transcription_config.get("model", "base")
+                    language = asr_language or transcription_config.get("language")
+                    logger.info(
+                        f"Auto-transcribing audio using Whisper model: {model_size}"
+                    )
+                    transcript_segments = TranscriptParser.transcribe_audio(
+                        audio_path, model_size=model_size, language=language
+                    )
+                logger.info(f"Transcript parsed: {len(transcript_segments)} segments")
+            except Exception as e:
+                self._warn(
+                    f"Transcription failed: {e}. "
+                    "Continuing without transcript text — speaker labels will be generated "
+                    "from audio diarization only."
                 )
-                transcript_segments = TranscriptParser.transcribe_audio(
-                    audio_path, model_size=model_size, language=language
-                )
-            logger.info(f"Transcript parsed: {len(transcript_segments)} segments")
+                transcript_segments = []
 
             # Step 3: Process video and detect faces
             self._update_progress(
                 "face_detection", 35, "Processing video and detecting faces..."
             )
             logger.info("\n[3/6] Processing video and detecting faces...")
-            frame_data_list = self.video_processor.process_video(video_path)
-
-            video_stats = self.video_processor.get_face_statistics()
-            logger.info(f"Video processing complete: {len(video_stats)} faces tracked")
-            for face_id, stats in video_stats.items():
+            try:
+                frame_data_list = self.video_processor.process_video(video_path)
+                video_stats = self.video_processor.get_face_statistics()
                 logger.info(
-                    f"  {face_id}: {stats['duration']:.1f}s "
-                    f"({stats['frame_count']} frames)"
+                    f"Video processing complete: {len(video_stats)} faces tracked"
+                )
+                for face_id, stats in video_stats.items():
+                    logger.info(
+                        f"  {face_id}: {stats['duration']:.1f}s "
+                        f"({stats['frame_count']} frames)"
+                    )
+            except Exception as e:
+                self._warn(
+                    f"Face detection failed: {e}. "
+                    "Continuing without visual speaker data."
+                )
+                frame_data_list = []
+
+            if (
+                self._count_total_faces(frame_data_list) == 0
+                and frame_data_list is not None
+            ):
+                self._warn(
+                    "No faces were detected in the video. Speaker identification will rely on "
+                    "audio only — names will be extracted from the transcript if available."
                 )
 
             # Step 4: Fuse audio and video
             self._update_progress("fusion", 55, "Fusing audio and video data...")
             logger.info("\n[4/6] Fusing audio and video data...")
-            fused_segments = self.fusion_processor.fuse(
-                diarization_segments, frame_data_list
-            )
-
-            fusion_stats = self.fusion_processor.get_statistics(fused_segments)
-            logger.info(
-                f"Fusion complete: {fusion_stats['segments_with_faces']}/{fusion_stats['total_segments']} "
-                f"segments with faces"
-            )
-
-            # Build speaker-face mapping (retained for future use)
-            _speaker_face_mapping = self.fusion_processor.build_speaker_face_mapping(  # noqa: F841
-                fused_segments
-            )
+            try:
+                fused_segments = self.fusion_processor.fuse(
+                    diarization_segments, frame_data_list
+                )
+                fusion_stats = self.fusion_processor.get_statistics(fused_segments)
+                logger.info(
+                    f"Fusion complete: {fusion_stats['segments_with_faces']}/{fusion_stats['total_segments']} "
+                    f"segments with faces"
+                )
+                _speaker_face_mapping = (
+                    self.fusion_processor.build_speaker_face_mapping(  # noqa: F841
+                        fused_segments
+                    )
+                )
+            except Exception as e:
+                self._warn(
+                    f"Audio-visual fusion failed: {e}. "
+                    "Falling back to audio-only speaker segments."
+                )
+                fused_segments = self.fusion_processor.fuse(diarization_segments, [])
+                _speaker_face_mapping = {}  # noqa: F841
 
             # Step 5: Extract speaker names
             self._update_progress("naming", 70, "Extracting speaker names...")
@@ -289,9 +321,15 @@ class MeetingProcessor:
 
             return output_files
 
+        except RuntimeError:
+            # Already a clean user-facing message — re-raise as-is
+            raise
         except Exception as e:
             logger.error(f"Processing failed: {e}", exc_info=True)
-            raise
+            raise RuntimeError(
+                f"Processing failed: {e}. "
+                "Check that FFmpeg is installed, HF_TOKEN is set, and the video file is valid."
+            ) from e
 
         finally:
             # Cleanup temporary files
