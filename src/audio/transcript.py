@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 import pysrt
 import webvtt
@@ -51,7 +51,6 @@ class TranscriptParser:
         try:
             import whisper
             import librosa
-            import numpy as np
         except Exception as e:
             raise ValueError(
                 "Whisper is not installed. Install 'openai-whisper' to use auto-transcription."

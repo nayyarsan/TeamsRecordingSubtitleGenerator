@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from ..audio import DiarizationSegment
-from ..video import FrameData, Face
+from ..video import FrameData
 from ..utils import get_logger, get_config
 
 logger = get_logger(__name__)

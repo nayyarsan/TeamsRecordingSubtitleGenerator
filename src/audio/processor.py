@@ -1,17 +1,13 @@
 """Audio processing and diarization module."""
 
-import numpy as np
 import torch
-import torchaudio
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import subprocess
-import tempfile
 import shutil
 
 from pyannote.audio import Pipeline
-from pyannote.core import Segment, Annotation
 
 from ..utils import get_logger, get_config
 
