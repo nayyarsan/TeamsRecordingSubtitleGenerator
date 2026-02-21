@@ -4,10 +4,377 @@ This guide covers the face detection and subtitle visualization features in the 
 
 ## Overview
 
-The tool provides two ways to visualize the speaker labeling results:
+The tool provides three ways to visualize and interact with speaker labeling results:
 
-1. **Annotated Video**: An MP4 video file with face detection boxes and speaker labels overlaid
-2. **Web UI Viewer**: An interactive web interface to browse and watch processed videos
+1. **React Web Application** (Recommended): Modern web interface with video upload, real-time processing, interactive workspace
+2. **Annotated Video**: An MP4 video file with face detection boxes and speaker labels overlaid
+3. **Legacy Web UI Viewer**: Flask-based interface to browse and watch processed videos
+
+---
+
+## React Web Application (Recommended)
+
+### Overview
+
+The primary web interface is a modern React application with FastAPI backend, providing a complete workflow from video upload to speaker management and export.
+
+**Technology Stack:**
+- **Frontend**: React 18 + Vite + Tailwind CSS + React Router
+- **Backend**: FastAPI + Uvicorn + SSE (Server-Sent Events)
+- **Deployment**: Single server serving both API and React app
+
+### Starting the Application
+
+**Production Mode** (serves built React app):
+```bash
+python run_server.py
+# Access at: http://localhost:8000
+```
+
+**Development Mode** (hot reload for frontend changes):
+```bash
+# Terminal 1: Backend
+python run_server.py
+
+# Terminal 2: Frontend
+cd frontend
+npm run dev
+# Access at: http://localhost:3000 (proxies API to port 8000)
+```
+
+### Features
+
+#### Dashboard Page (`/`)
+
+**File Upload:**
+- Drag-and-drop or click to upload video files
+- Supported formats: MP4, MKV, AVI, MOV
+- Real-time upload progress bar
+- File size and validation feedback
+
+**Processing Configuration:**
+- **ASR Model**: Select Whisper model size (tiny, base, small, medium, large)
+  - Recommendation: `base` for fastest processing, `medium` for best accuracy
+- **Max Speakers**: Set expected number of speakers (default: 10)
+- **Ollama Model** (Optional): Select local LLM model for AI-assisted name extraction
+  - Requires Ollama running locally
+  - Shows connection status and available models
+
+**Real-Time Processing:**
+- Live progress updates via Server-Sent Events (SSE)
+- 4-step pipeline visualization:
+  1. Audio Processing (diarization + transcription)
+  2. Video Processing (face detection + tracking)
+  3. Audio-Visual Fusion (speaker-face alignment)
+  4. Name Extraction (AI-assisted intro analysis)
+- System logs with color-coded levels (info, warning, error)
+- Processing typically takes 1-3x video duration on CPU
+
+**Processed Videos List:**
+- Browse all previously processed videos
+- Shows video name, timestamp, speaker count
+- Click to open in workspace
+
+---
+
+#### Workspace Page (`/workspace/:videoId`)
+
+The workspace provides an interactive environment for reviewing, editing, and exporting results.
+
+**Layout:**
+- **Left**: Video player with face overlay and subtitles
+- **Right**: Sidebar with Timeline and Speakers tabs
+- **Top Menu**: File, Export, Show/Hide Faces
+
+##### Video Player
+
+**Playback Controls:**
+- Play/pause, seek scrubber, volume control
+- Keyboard shortcuts:
+  - Space: Play/pause
+  - Arrow keys: Seek forward/backward
+- Playback speed control (0.5x to 2x)
+
+**Face Overlay:**
+- Real-time face bounding boxes synchronized with video
+- Color-coded by detection confidence:
+  - Green: High (≥80%)
+  - Orange: Medium (60-80%)
+  - Red: Low (<60%)
+- Shows speaker labels and face IDs
+- Toggle visibility with "Show/Hide Faces" button
+
+**Subtitle Display:**
+- Live subtitles at bottom of video
+- Shows speaker name and text
+- Syncs automatically with video playback
+
+##### Timeline Inspector (Right Sidebar - Timeline Tab)
+
+**Features:**
+- Scrollable list of all subtitle segments
+- Each segment displays:
+  - Timestamp (MM:SS format)
+  - Speaker name badge (color-coded)
+  - Text preview (truncated for long segments)
+- **Active segment highlighting**: Currently playing segment is highlighted with blue border
+- **Click-to-seek**: Click any segment to jump video to that timestamp
+- **Auto-scroll**: Timeline auto-scrolls to keep active segment visible
+
+**Use Cases:**
+- Quick navigation through long videos
+- Find specific speakers or topics
+- Review subtitle accuracy
+
+##### Speaker Manager (Right Sidebar - Speakers Tab)
+
+**Features:**
+- List of all detected speakers
+- Each speaker shows:
+  - Current name (from AI extraction or "Speaker N" fallback)
+  - Name confidence score (if AI-extracted)
+  - Total speaking time
+  - Number of segments
+
+**Rename Speakers:**
+1. Click edit button next to speaker name
+2. Enter new name in input field
+3. Click save
+4. SRT file regenerates automatically with new name
+5. Video refreshes to show updated subtitles
+
+**AI Name Suggestions:**
+- Click "Suggest Names" button
+- Ollama analyzes intro segments for name mentions
+- Shows suggested names with confidence scores
+- Click to apply suggestion to matching speaker
+- Requires Ollama running locally with a model loaded
+
+##### Export Modal
+
+**Export Formats:**
+
+1. **SRT Subtitles** (`.srt`)
+   - Standard SubRip format
+   - Includes speaker labels
+   - Compatible with all video players
+   - Use for: Adding subtitles to videos, archiving transcripts
+
+2. **JSON Metadata** (`.json`)
+   - Complete structured data
+   - Includes: segments, speakers, timestamps, confidence scores
+   - Use for: Programmatic access, data analysis, custom integrations
+
+3. **Annotated Video** (`.mp4`)
+   - Video with face boxes and subtitles baked in
+   - H.264 codec for compatibility
+   - Use for: Sharing, presentations, archiving annotated results
+
+**Export Process:**
+- Select format from modal
+- Click Export button
+- File downloads automatically
+- Success/error feedback displayed
+
+---
+
+### Architecture Details
+
+#### Backend API Endpoints
+
+The FastAPI backend provides REST endpoints at `/api`:
+
+**Upload & Processing:**
+- `POST /api/upload` - Upload video file
+- `POST /api/process` - Start processing pipeline
+- `GET /api/process/status/{video_id}` - SSE stream for real-time progress
+
+**Video Data:**
+- `GET /api/videos` - List all processed videos
+- `GET /api/video/{id}/metadata` - Get video metadata and speakers
+- `GET /api/video/{id}/subtitles` - Get parsed SRT as JSON
+- `GET /api/video/{id}/faces` - Get frame-by-frame face detection data
+- `GET /api/video/{id}/annotated` - Serve annotated video file
+- `GET /api/video/{id}/original` - Serve original video file
+
+**Speaker Management:**
+- `POST /api/video/{id}/speakers/{speaker_id}/rename` - Rename speaker
+- `POST /api/video/{id}/suggest-names` - AI name suggestions via Ollama
+
+**Export:**
+- `POST /api/video/{id}/export` - Export SRT/JSON/video
+
+**System:**
+- `GET /api/ollama/status` - Check Ollama connectivity
+- `GET /api/ollama/models` - List available Ollama models
+- `GET /api/system/info` - System and GPU information
+
+#### Frontend Architecture
+
+**Component Structure:**
+```
+src/
+├── api/
+│   └── client.js               # API wrapper with error handling
+├── components/
+│   ├── common/
+│   │   ├── Button.jsx          # Reusable button component
+│   │   ├── Modal.jsx          # Generic modal wrapper
+│   │   └── StatusBadge.jsx     # Status indicators
+│   ├── dashboard/
+│   │   ├── DashboardPage.jsx   # Main dashboard
+│   │   ├── DropZone.jsx        # File upload
+│   │   ├── ConfigPanel.jsx     # Processing config
+│   │   ├── PipelineProgress.jsx # SSE progress display
+│   │   └── SystemLogs.jsx      # Real-time logs
+│   ├── workspace/
+│   │   ├── WorkspacePage.jsx   # Main workspace layout
+│   │   ├── VideoPlayer.jsx     # Video player with overlays
+│   │   ├── FaceOverlay.jsx     # Canvas face bounding boxes
+│   │   ├── SubtitleOverlay.jsx # Subtitle display
+│   │   ├── PlayerControls.jsx  # Playback controls
+│   │   ├── TimelineInspector.jsx # Timeline sidebar
+│   │   ├── SpeakerManager.jsx  # Speaker list sidebar
+│   │   └── ExportModal.jsx     # Export dialog
+│   └── layout/
+│       ├── Header.jsx          # Top navigation
+│       └── Sidebar.jsx         # Sidebar wrapper
+├── hooks/
+│   ├── useSSE.js               # Server-Sent Events hook
+│   ├── useVideoSync.js         # Video/subtitle sync
+│   └── useFaceOverlay.js       # Canvas face rendering
+├── utils/
+│   └── formatters.js           # Time/date/bytes formatters
+├── App.jsx                     # Routes: /, /workspace/:id
+├── main.jsx                    # React entry point
+└── index.css                   # Tailwind + custom styles
+```
+
+**State Management:**
+- React hooks (useState, useEffect, useRef) for local state
+- No Redux/Context - simple prop drilling suffices for this app
+- SSE for real-time server updates
+
+**Styling:**
+- Tailwind CSS utility classes
+- Dark theme with custom color palette
+- Responsive design (desktop-first, 1024px+ optimal)
+
+#### Data Flow
+
+**Upload & Process:**
+```
+User uploads file → POST /api/upload → File saved to ./uploads/
+User starts process → POST /api/process → Background thread runs pipeline
+Frontend connects SSE → GET /api/process/status/{id} → Real-time updates
+Process completes → Output files in ./output/ → Dashboard refreshes
+```
+
+**Workspace:**
+```
+User opens workspace → GET /api/video/{id}/{metadata,subtitles,faces}
+Video player loads → useVideoSync hook tracks current time
+Face overlay renders → Canvas draws boxes from face data JSON
+Timeline updates → Active segment follows video playback
+User renames speaker → POST rename → SRT regenerates → Data refreshes
+User exports → POST export → File downloads via browser
+```
+
+---
+
+### Browser Compatibility
+
+**Supported Browsers:**
+- Chrome/Edge 90+ (Recommended)
+- Firefox 88+
+- Safari 14+
+
+**Requirements:**
+- Modern ES6+ JavaScript support
+- HTML5 video/canvas support
+- WebSocket/SSE support (for real-time updates)
+- localStorage (for UI preferences)
+
+**Known Issues:**
+- Safari may have video playback quirks with certain codecs
+- Older browsers may not support canvas drawing performance optimizations
+
+---
+
+### Development
+
+**Setup:**
+```bash
+# Install frontend dependencies
+cd frontend
+npm install
+
+# Install backend dependencies
+pip install -e ".[dev]"
+```
+
+**Running Locally:**
+```bash
+# Backend (terminal 1)
+python run_server.py
+
+# Frontend with hot reload (terminal 2)
+cd frontend
+npm run dev
+```
+
+**Build for Production:**
+```bash
+cd frontend
+npm run build
+# Output: frontend/dist/
+
+# Backend will serve frontend/dist/ automatically
+python run_server.py
+# Access at: http://localhost:8000
+```
+
+**Linting & Formatting:**
+```bash
+# Backend
+black src/
+flake8 src/
+mypy src/
+
+# Frontend
+cd frontend
+npm run lint  # If configured
+```
+
+---
+
+### Troubleshooting
+
+**Problem**: "Cannot connect to backend"
+- **Solution**: Ensure `run_server.py` is running on port 8000
+- **Check**: `curl http://localhost:8000/api/videos`
+
+**Problem**: "Video won't play"
+- **Cause**: Browser codec incompatibility
+- **Solution**: Use Chrome/Edge, or convert video to H.264/AAC
+
+**Problem**: "Face overlay not showing"
+- **Cause**: Face detection data not generated during processing
+- **Solution**: Reprocess with face detection enabled in config
+
+**Problem**: "Ollama suggestions fail"
+- **Cause**: Ollama not running or no models installed
+- **Solution**: Start Ollama (`ollama serve`) and pull a model (`ollama pull llama2`)
+
+**Problem**: "Upload fails"
+- **Cause**: File too large or unsupported format
+- **Solution**: Check file size (<2GB recommended), use MP4/MKV/AVI
+
+**Problem**: "SSE progress not updating"
+- **Cause**: Browser closed SSE connection
+- **Solution**: Refresh page, check browser console for errors
+
+---
 
 ## Annotated Video Output
 

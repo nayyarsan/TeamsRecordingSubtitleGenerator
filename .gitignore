@@ -56,6 +56,8 @@ htmlcov/
 temp/
 tmp/
 *.tmp
+tmpclaude-*
+nul
 
 # Output files
 output/
@@ -79,6 +81,9 @@ meetings/
 *.mp3
 *.srt
 *.vtt
+
+# Claude Code local settings
+.claude/
 
 # Environment
 .env

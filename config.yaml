@@ -84,14 +84,17 @@ naming:
   # LLM-assisted name extraction (optional)
   llm:
     # Enable LLM for name extraction
-    enabled: false
-    
-    # Provider: "openai", "anthropic", or "local"
-    provider: "openai"
-    
-    # Model name
-    model: "gpt-4"
-    
+    enabled: true
+
+    # Provider: "ollama" (local), "openai", or "anthropic"
+    provider: "ollama"
+
+    # Model name (for Ollama: llama3, mistral, etc.)
+    model: "llama3"
+
+    # Ollama endpoint
+    endpoint: "http://localhost:11434"
+
     # Temperature for name extraction
     temperature: 0.0
 
