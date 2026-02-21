@@ -43,8 +43,6 @@ setup(
         "mediapipe>=0.10.0",
         "pysrt>=1.1.2",
         "webvtt-py>=0.4.6",
-        "transformers>=4.30.0",
-        "spacy>=3.5.0",
         "jinja2>=3.1.0",
         "click>=8.1.0",
         "pyyaml>=6.0",
@@ -54,6 +52,11 @@ setup(
         "openai-whisper>=20231117",
         "flask>=2.3.0",
         "werkzeug>=2.3.0",
+        # FastAPI Backend
+        "fastapi>=0.104.0",
+        "uvicorn[standard]>=0.24.0",
+        "python-multipart>=0.0.6",
+        "sse-starlette>=1.8.0",
     ],
     extras_require={
         "dev": [

@@ -21,16 +21,18 @@ webvtt-py>=0.4.6
 # Transcription (for no-transcript mode)
 openai-whisper>=20231117
 
-# ML/NLP for Name Extraction
-transformers>=4.30.0
-spacy>=3.5.0
-
 # Output Generation
 jinja2>=3.1.0
 
-# Web UI (optional)
+# Web UI (optional - legacy)
 flask>=2.3.0
 werkzeug>=2.3.0
+
+# FastAPI Backend
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+sse-starlette>=1.8.0
 
 # CLI and Configuration
 click>=8.1.0
