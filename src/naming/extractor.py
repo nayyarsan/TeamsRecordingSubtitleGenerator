@@ -48,6 +48,8 @@ class SpeakerNamer:
         # LLM config (optional)
         llm_config = config.get("llm", {})
         self.llm_enabled = llm_config.get("enabled", False)
+        self.llm_provider = llm_config.get("provider", "ollama")
+        self.llm_model = llm_config.get("model", "llama3")
 
         logger.info("SpeakerNamer initialized")
 
@@ -71,8 +73,13 @@ class SpeakerNamer:
         # Extract introduction segments
         intro_segments = self._extract_intro_segments(transcript_segments)
 
-        # Parse names from introductions
+        # Parse names from introductions (regex)
         name_candidates = self._parse_names_from_intros(intro_segments)
+
+        # LLM-assisted name extraction
+        if self.llm_enabled:
+            llm_candidates = self._extract_names_with_llm(intro_segments)
+            name_candidates = self._merge_candidates(name_candidates, llm_candidates)
 
         # Map names to speaker clusters
         named_speakers = self._map_names_to_clusters(
@@ -306,6 +313,57 @@ class SpeakerNamer:
         )
 
         return best_speaker.speaker_cluster_id
+
+    def _extract_names_with_llm(
+        self, intro_segments: List[TranscriptSegment]
+    ) -> List[Tuple[str, float, str]]:
+        """
+        Use Ollama LLM to extract names from introduction segments.
+
+        Returns:
+            List of (name, confidence, original_text) tuples
+        """
+        try:
+            from ..llm import get_llm_client
+
+            client = get_llm_client(self.llm_provider)
+
+            if not client.is_available():
+                logger.warning("Ollama not available, skipping LLM name extraction")
+                return []
+
+            combined_text = " ".join(seg.text for seg in intro_segments)
+            suggestions = client.extract_names(combined_text)
+
+            candidates = []
+            for s in suggestions:
+                name = s.get("name", "")
+                if self._is_valid_name(name):
+                    context = s.get("context", combined_text[:100])
+                    candidates.append((name, 0.9, context))
+
+            logger.info(f"LLM extracted {len(candidates)} name candidates")
+            return candidates
+
+        except Exception as e:
+            logger.warning(f"LLM name extraction failed: {e}")
+            return []
+
+    @staticmethod
+    def _merge_candidates(
+        regex_candidates: List[Tuple[str, float, str]],
+        llm_candidates: List[Tuple[str, float, str]],
+    ) -> List[Tuple[str, float, str]]:
+        """Merge regex and LLM candidates. LLM wins on conflicts."""
+        seen_names = {}
+        # LLM candidates first (higher priority)
+        for name, conf, text in llm_candidates:
+            seen_names[name.lower()] = (name, conf, text)
+        # Add regex candidates if not already found by LLM
+        for name, conf, text in regex_candidates:
+            if name.lower() not in seen_names:
+                seen_names[name.lower()] = (name, conf, text)
+        return list(seen_names.values())
 
     def create_speaker_mapping(
         self, named_speakers: List[NamedSpeaker]
