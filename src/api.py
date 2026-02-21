@@ -402,7 +402,7 @@ def _run_processing(video_id: str, video_path: Path, output_dir: Path, config: d
     try:
         from .pipeline import MeetingProcessor
 
-        def progress_cb(step, percent, message):
+        def progress_cb(step, percent, message, level="info"):
             if video_id in _jobs:
                 _jobs[video_id]["step"] = step
                 _jobs[video_id]["percent"] = percent
@@ -411,7 +411,7 @@ def _run_processing(video_id: str, video_path: Path, output_dir: Path, config: d
                         "step": step,
                         "percent": percent,
                         "message": message,
-                        "level": "info",
+                        "level": level,
                     }
                 )
 
