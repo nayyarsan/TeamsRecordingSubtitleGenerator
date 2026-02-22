@@ -32,6 +32,9 @@ pytest --cov=src --cov-report=xml    # All tests
 pytest tests/test_foo.py             # Single file
 pytest tests/test_foo.py::test_bar   # Single test
 python verify_project.py             # Verify installation
+
+# E2E smoke tests (frontend)
+cd frontend && npm run test:e2e      # Launches Vite + runs Playwright
 ```
 Note: test suite is not yet implemented; `tests/` directory needs to be created.
 
